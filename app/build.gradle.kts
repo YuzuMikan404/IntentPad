@@ -1,7 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("com.google.devtools.ksp")
+    id("com.google.devtools.ksp") // ✅ 既にある
 }
 
 android {
@@ -36,7 +36,7 @@ android {
     }
     kotlinOptions {
         jvmTarget = "1.8"
-        // ✅ ここが重要！実験的APIを許可する設定を追加
+        // ✅ 実験的APIを許可する設定（既にある）
         freeCompilerArgs = freeCompilerArgs + listOf(
             "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
             "-opt-in=kotlin.RequiresOptIn"
@@ -71,7 +71,7 @@ dependencies {
     // Google Material (XMLテーマ用)
     implementation("com.google.android.material:material:1.11.0")
 
-    // Room Database
+    // Room Database - ✅ 既にあるのでそのまま
     val roomVersion = "2.6.1"
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
@@ -79,4 +79,8 @@ dependencies {
 
     // GSON (インポート/エクスポート用)
     implementation("com.google.code.gson:gson:2.10.1")
+
+    // ✅ 追加するのはこの1行だけ！
+    // 画像読み込み用 (Coil) - 画像アイコン機能に必要
+    implementation("io.coil-kt:coil-compose:2.6.0")
 }
