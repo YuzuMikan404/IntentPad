@@ -19,15 +19,15 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # ★ここが修正ポイント：バージョン8.5を明示的に指定
-    - name: Generate Gradle Wrapper
-      run: gradle wrapper --gradle-version 8.5
+    # ★ここが変更点: Gradle 8.5 を直接セットアップします
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: 8.5
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
-
+    # ★ここも変更点: ./gradlew ではなく gradle コマンドを直接使います
     - name: Build with Gradle
-      run: ./gradlew assembleDebug
+      run: gradle assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
