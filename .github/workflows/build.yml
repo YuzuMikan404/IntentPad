@@ -39,6 +39,12 @@ jobs:
 
     - name: Build with Gradle
       run: gradle assembleDebug
+    
+    - name: Upload APK as Artifact (Fallback) # ★このステップを追加
+      uses: actions/upload-artifact@v4
+      with:
+        name: Final-APK-from-Build-Success
+        path: app/build/outputs/apk/debug/*.apk
 
     # ★ここが変更点：タグプッシュ または 手動実行 のどちらかであればリリースを作成
     - name: Create Release
