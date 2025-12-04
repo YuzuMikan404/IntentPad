@@ -12,7 +12,6 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import kotlinx.coroutines.flow.Flow
 
-// ★ここにShortcutEntity（設計図）を直接書きます
 @Entity(tableName = "shortcuts")
 data class ShortcutEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
@@ -22,7 +21,6 @@ data class ShortcutEntity(
     val colorHex: Long
 )
 
-// 以下はデータベースの設定
 @Dao
 interface ShortcutDao {
     @Query("SELECT * FROM shortcuts ORDER BY id DESC")
