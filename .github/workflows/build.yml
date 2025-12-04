@@ -35,6 +35,7 @@ jobs:
       uses: gradle/actions/setup-gradle@v3
       with:
         gradle-version: 8.5
+        cache-disabled: true # ★キャッシュ無効化を追加
 
     - name: Build with Gradle
       run: gradle assembleDebug
