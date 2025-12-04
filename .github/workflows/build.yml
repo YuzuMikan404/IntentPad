@@ -3,7 +3,7 @@ name: Android Build
 on:
   push:
     branches: [ "main", "master" ]
-  workflow_dispatch: # ボタンで手動実行できるようにする
+  workflow_dispatch:
 
 jobs:
   build:
@@ -19,9 +19,9 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # 手動コピペだとGradleのラッパー(実行ファイル)がないため、ここで生成します
+    # ★ここが修正ポイント：バージョン8.5を明示的に指定
     - name: Generate Gradle Wrapper
-      run: gradle wrapper
+      run: gradle wrapper --gradle-version 8.5
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
