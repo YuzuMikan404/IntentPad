@@ -19,7 +19,7 @@ interface ShortcutDao {
     @Delete suspend fun delete(shortcut: ShortcutEntity)
 }
 
-@Database(entities = [ShortcutEntity::class], version = 1)
+@Database(entities = [ShortcutEntity::class], version = 1, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun shortcutDao(): ShortcutDao
     companion object {
