@@ -33,6 +33,10 @@ android {
     }
     kotlinOptions {
         jvmTarget = "1.8"
+        // 【修正箇所】ここで実験的APIの使用を許可します
+        freeCompilerArgs += listOf(
+            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi"
+        )
     }
     buildFeatures {
         compose = true
