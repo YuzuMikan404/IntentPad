@@ -1,6 +1,5 @@
-name: Android Build & Release
-
-on:
+- name: Build with Gradle
+  run: gradle assembleDebug --stacktrace --infoon:
   # タグプッシュでも動く
   push:
     tags:
