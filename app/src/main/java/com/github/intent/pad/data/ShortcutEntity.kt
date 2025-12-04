@@ -16,7 +16,5 @@ data class ShortcutEntity(
     // 新機能: トグル機能用
     val isToggle: Boolean = false,
     val secondaryActionName: String? = null,
-    val isActive: Boolean = true,
-    // 新機能: レイアウト設定用
-    val layoutColumns: Int = 2
+    val isActive: Boolean = true
 )
