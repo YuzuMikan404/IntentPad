@@ -1,3 +1,20 @@
+    }
+
+    private fun createIconBitmap(text: String, color: Int): Bitmap {
+        val size = 192
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+        canvas.drawCircle(size/2f, size/2f, size/2f, paint)
+        paint.color = android.graphics.Color.WHITE
+        paint.textSize = size * 0.5f
+        paint.textAlign = Paint.Align.CENTER
+        val bounds = Rect()
+        paint.getTextBounds(text, 0, text.length, bounds)
+        canvas.drawText(text, size/2f, (size/2f) + (bounds.height()/2f)/1.5f, paint)
+        return bitmap
+    }
+}
 package com.github.intent.pad.utils
 
 import android.content.Context
