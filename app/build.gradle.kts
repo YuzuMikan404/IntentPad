@@ -18,18 +18,16 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
-    
-        kotlinOptions {
-        freeCompilerArgs = freeCompilerArgs + listOf(
-            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
-            "-opt-in=kotlin.RequiresOptIn"
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
     compileOptions {
@@ -38,6 +36,11 @@ android {
     }
     kotlinOptions {
         jvmTarget = "1.8"
+        // ✅ ここが重要！実験的APIを許可する設定を追加
+        freeCompilerArgs = freeCompilerArgs + listOf(
+            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+            "-opt-in=kotlin.RequiresOptIn"
+        )
     }
     buildFeatures {
         compose = true
@@ -64,7 +67,7 @@ dependencies {
     // Activity & Core
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.core:core-splashscreen:1.0.1")
-    
+
     // Google Material (XMLテーマ用)
     implementation("com.google.android.material:material:1.11.0")
 
