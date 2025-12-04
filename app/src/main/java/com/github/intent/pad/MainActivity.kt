@@ -1,3 +1,6 @@
+// ✅ 修正1: ファイルの先頭に追加（packageの前）
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.github.intent.pad
 
 import android.app.Activity.RESULT_OK
@@ -187,7 +190,6 @@ fun MainScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ShortcutCard(item: ShortcutEntity, onTest: () -> Unit, onEdit: () -> Unit, onPin: () -> Unit, onDel: () -> Unit) {
     var showMenu by remember { mutableStateOf(false) }
@@ -220,6 +222,8 @@ fun ShortcutCard(item: ShortcutEntity, onTest: () -> Unit, onEdit: () -> Unit, o
     }
 }
 
+// ✅ 修正2: この関数の前に @OptIn アノテーションを追加
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun EditDialog(item: ShortcutEntity?, onDismiss: () -> Unit, onSave: (ShortcutEntity) -> Unit) {
     val context = LocalContext.current
