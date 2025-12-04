@@ -27,7 +27,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.github.intent.pad.data.AppDatabase
 import com.github.intent.pad.data.ShortcutEntity
@@ -44,6 +43,7 @@ class MainActivity : ComponentActivity() {
         val db = AppDatabase.getDatabase(this)
         val dao = db.shortcutDao()
         setContent {
+            // ダークモード対応のMaterialTheme
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -51,12 +51,18 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val shortcuts by dao.getAll().collectAsState(initial = emptyList())
                     val scope = rememberCoroutineScope()
-                    var gridColumns by remember { mutableStateOf(2) }
+                    var gridColumns by remember { mutableStateOf(3) }
+                    var gridSpacing by remember { mutableStateOf(12) }
+                    var cardHeight by remember { mutableStateOf(140) }
                     
                     MainScreen(
                         shortcuts = shortcuts,
                         gridColumns = gridColumns,
+                        gridSpacing = gridSpacing,
+                        cardHeight = cardHeight,
                         onGridColumnsChange = { gridColumns = it },
+                        onGridSpacingChange = { gridSpacing = it },
+                        onCardHeightChange = { cardHeight = it },
                         onAdd = { scope.launch(Dispatchers.IO) { dao.insert(it) } },
                         onUpdate = { scope.launch(Dispatchers.IO) { dao.insert(it) } },
                         onDel = { scope.launch(Dispatchers.IO) { dao.delete(it) } },
@@ -75,7 +81,7 @@ class MainActivity : ComponentActivity() {
                                 val updated = entity.copy(isActive = !entity.isActive)
                                 scope.launch(Dispatchers.IO) { dao.insert(updated) }
                             } else {
-                                // 通常機能
+                                // 通常機能 - トーストなしでインテント送信
                                 ShortcutUtils.sendBroadcast(this, entity.actionName)
                             }
                         }
@@ -91,7 +97,11 @@ class MainActivity : ComponentActivity() {
 fun MainScreen(
     shortcuts: List<ShortcutEntity>,
     gridColumns: Int,
+    gridSpacing: Int,
+    cardHeight: Int,
     onGridColumnsChange: (Int) -> Unit,
+    onGridSpacingChange: (Int) -> Unit,
+    onCardHeightChange: (Int) -> Unit,
     onAdd: (ShortcutEntity) -> Unit,
     onUpdate: (ShortcutEntity) -> Unit,
     onDel: (ShortcutEntity) -> Unit,
@@ -113,6 +123,7 @@ fun MainScreen(
             try {
                 context.contentResolver.openOutputStream(uri)?.use { os ->
                     os.write(json.toByteArray())
+                    // エクスポート時はトーストを表示
                     android.widget.Toast.makeText(context, "データをエクスポートしました", android.widget.Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
@@ -137,12 +148,13 @@ fun MainScreen(
                         }
                         // メインスレッドでToastを表示
                         launch(Dispatchers.Main) { 
+                            // インポート時はトーストを表示
                             android.widget.Toast.makeText(context, "${importedList.size}件のデータをインポートしました", android.widget.Toast.LENGTH_LONG).show()
                         }
                     }
                 }
             } catch (e: Exception) {
-                // GsonParseExceptionやIOExceptionに対応
+                // インポート失敗時もトースト表示
                 android.widget.Toast.makeText(context, "インポート失敗: ファイル形式を確認してください", android.widget.Toast.LENGTH_LONG).show()
             }
         }
@@ -209,14 +221,15 @@ fun MainScreen(
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(gridColumns),
-                contentPadding = PaddingValues(16.dp),
+                contentPadding = PaddingValues(gridSpacing.dp),
                 modifier = Modifier.padding(padding),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(gridSpacing.dp),
+                horizontalArrangement = Arrangement.spacedBy(gridSpacing.dp)
             ) {
                 items(shortcuts) { item ->
                     ShortcutCard(
                         item = item,
+                        cardHeight = cardHeight,
                         onTest = { onTest(item) },
                         onEdit = { itemToEdit = item },
                         onPin = { onPin(item) },
@@ -250,7 +263,11 @@ fun MainScreen(
         if (showSettings) {
             SettingsDialog(
                 gridColumns = gridColumns,
+                gridSpacing = gridSpacing,
+                cardHeight = cardHeight,
                 onGridColumnsChange = onGridColumnsChange,
+                onGridSpacingChange = onGridSpacingChange,
+                onCardHeightChange = onCardHeightChange,
                 onDismiss = { showSettings = false }
             )
         }
@@ -260,6 +277,7 @@ fun MainScreen(
 @Composable
 fun ShortcutCard(
     item: ShortcutEntity,
+    cardHeight: Int,
     onTest: () -> Unit,
     onEdit: () -> Unit,
     onPin: () -> Unit,
@@ -269,9 +287,11 @@ fun ShortcutCard(
 
     Box {
         Card(
-            colors = CardDefaults.cardColors(containerColor = Color(item.colorHex)),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(item.colorHex)
+            ),
             modifier = Modifier
-                .height(140.dp)
+                .height(cardHeight.dp)
                 .fillMaxWidth()
                 .pointerInput(Unit) {
                     detectTapGestures(
@@ -294,7 +314,10 @@ fun ShortcutCard(
                         modifier = Modifier.size(48.dp)
                     )
                 } else {
-                    Text(item.iconEmoji, style = MaterialTheme.typography.displayMedium)
+                    Text(
+                        item.iconEmoji, 
+                        style = MaterialTheme.typography.displayMedium
+                    )
                 }
                 
                 Text(
@@ -350,7 +373,11 @@ fun EditDialog(
     var isToggle by remember { mutableStateOf(item?.isToggle ?: false) }
     var secondaryAction by remember { mutableStateOf(item?.secondaryActionName ?: "") }
     
-    val colors = listOf(0xFF1E88E5, 0xFFD81B60, 0xFF43A047, 0xFFFB8C00, 0xFF8E24AA, 0xFF546E7A)
+    val colors = listOf(
+        0xFF1E88E5, 0xFFD81B60, 0xFF43A047, 0xFFFB8C00, 
+        0xFF8E24AA, 0xFF546E7A, 0xFF00ACC1, 0xFF7CB342,
+        0xFFF4511E, 0xFF5E35B1, 0xFF3949AB, 0xFFC0CA33
+    )
     var selColor by remember { mutableStateOf(item?.colorHex ?: colors[0]) }
 
     // 画像選択ランチャー
@@ -367,20 +394,25 @@ fun EditDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (isEditMode) "トリガーを編集" else "新規トリガー作成") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
                 // 基本設定
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("表示名*") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    isError = name.isBlank()
                 )
                 
                 OutlinedTextField(
                     value = action,
                     onValueChange = { action = it },
                     label = { Text("インテントアクション*") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    isError = action.isBlank()
                 )
                 
                 // トグル機能
@@ -389,20 +421,26 @@ fun EditDialog(
                         checked = isToggle,
                         onCheckedChange = { isToggle = it }
                     )
-                    Text("トグル機能（ON/OFF切り替え）")
+                    Text("トグル機能（ON/OFF切り替え）", style = MaterialTheme.typography.bodyMedium)
                 }
                 
                 if (isToggle) {
-                    OutlinedTextField(
-                        value = secondaryAction,
-                        onValueChange = { secondaryAction = it },
-                        label = { Text("OFF時のアクション") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("ON時のアクション: $action", style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(
+                            value = secondaryAction,
+                            onValueChange = { secondaryAction = it },
+                            label = { Text("OFF時のアクション") },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("省略するとONと同じアクションを使用") }
+                        )
+                    }
                 }
                 
+                Divider()
+                
                 // アイコン設定
-                Text("アイコン設定", style = MaterialTheme.typography.labelMedium)
+                Text("アイコン設定", style = MaterialTheme.typography.titleSmall)
                 
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -412,6 +450,8 @@ fun EditDialog(
                         onClick = { imagePicker.launch("image/*") },
                         modifier = Modifier.weight(1f)
                     ) {
+                        Icon(Icons.Default.Image, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text("画像を選択")
                     }
                     
@@ -419,7 +459,8 @@ fun EditDialog(
                         value = emoji,
                         onValueChange = { if (it.length <= 2) emoji = it },
                         label = { Text("絵文字") },
-                        modifier = Modifier.width(100.dp)
+                        modifier = Modifier.width(100.dp),
+                        placeholder = { Text("例: 🚀") }
                     )
                 }
                 
@@ -455,20 +496,26 @@ fun EditDialog(
                     )
                 }
                 
+                Divider()
+                
                 // 色選択
-                Text("背景色", style = MaterialTheme.typography.labelMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    colors.forEach { c -> 
+                Text("背景色", style = MaterialTheme.typography.titleSmall)
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(4),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(colors) { c -> 
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(40.dp)
                                 .clip(CircleShape)
                                 .background(Color(c))
                                 .combinedClickable { selColor = c }
-                                .then(
-                                    if (selColor == c) Modifier.background(
-                                        Color.Black.copy(alpha = 0.2f)
-                                    ) else Modifier
+                                .border(
+                                    width = if (selColor == c) 3.dp else 0.dp,
+                                    color = if (selColor == c) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    shape = CircleShape
                                 )
                         )
                     } 
@@ -487,13 +534,13 @@ fun EditDialog(
                             colorHex = selColor,
                             imageIconUri = imageUri,
                             isToggle = isToggle,
-                            secondaryActionName = if (isToggle && secondaryAction.isNotBlank()) 
-                                secondaryAction else null,
+                            secondaryActionName = if (isToggle) secondaryAction else null,
                             isActive = item?.isActive ?: true
                         )
                         onSave(newItem)
                     }
-                }
+                },
+                enabled = name.isNotBlank() && action.isNotBlank()
             ) { 
                 Text(if (isEditMode) "保存" else "作成") 
             }
@@ -509,35 +556,99 @@ fun EditDialog(
 @Composable
 fun SettingsDialog(
     gridColumns: Int,
+    gridSpacing: Int,
+    cardHeight: Int,
     onGridColumnsChange: (Int) -> Unit,
+    onGridSpacingChange: (Int) -> Unit,
+    onCardHeightChange: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("レイアウト設定") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("グリッド列数: $gridColumns")
+            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                // グリッド列数
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("グリッド列数", style = MaterialTheme.typography.titleMedium)
+                        Text("$gridColumns列", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Slider(
+                        value = gridColumns.toFloat(),
+                        onValueChange = { onGridColumnsChange(it.toInt()) },
+                        valueRange = 1f..5f,
+                        steps = 3
+                    )
+                    // 列数プレビュー
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        repeat(gridColumns) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(20.dp)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                            )
+                        }
+                    }
+                }
                 
-                Slider(
-                    value = gridColumns.toFloat(),
-                    onValueChange = { onGridColumnsChange(it.toInt()) },
-                    valueRange = 1f..4f,
-                    steps = 2
-                )
+                Divider()
                 
-                // プレビュー
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    repeat(gridColumns) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(40.dp)
-                                .background(Color.Gray.copy(alpha = 0.3f))
-                        )
+                // グリッド間隔
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("グリッド間隔", style = MaterialTheme.typography.titleMedium)
+                        Text("${gridSpacing}dp", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Slider(
+                        value = gridSpacing.toFloat(),
+                        onValueChange = { onGridSpacingChange(it.toInt()) },
+                        valueRange = 4f..24f,
+                        steps = 4
+                    )
+                }
+                
+                Divider()
+                
+                // カード高さ
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("カード高さ", style = MaterialTheme.typography.titleMedium)
+                        Text("${cardHeight}dp", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Slider(
+                        value = cardHeight.toFloat(),
+                        onValueChange = { onCardHeightChange(it.toInt()) },
+                        valueRange = 80f..200f,
+                        steps = 5
+                    )
+                    // 高さプレビュー
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(cardHeight.dp)
+                            .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f))
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.secondary,
+                                shape = MaterialTheme.shapes.medium
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("カードプレビュー", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
