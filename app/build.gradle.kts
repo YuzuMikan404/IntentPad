@@ -33,16 +33,12 @@ android {
     }
     kotlinOptions {
         jvmTarget = "1.8"
-        // 【修正箇所】ここで実験的APIの使用を許可します
-        freeCompilerArgs += listOf(
-            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi"
-        )
     }
     buildFeatures {
         compose = true
     }
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.4"
+        kotlinCompilerExtensionVersion = "1.5.4" // ★修正済み
     }
     packaging {
         resources {
@@ -67,9 +63,12 @@ dependencies {
     // Google Material (XMLテーマ用)
     implementation("com.google.android.material:material:1.11.0")
 
-    // Room Database (ここが重要！)
+    // Room Database
     val roomVersion = "2.6.1"
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
+
+    // GSON (インポート/エクスポート用)
+    implementation("com.google.code.gson:gson:2.10.1")
 }
