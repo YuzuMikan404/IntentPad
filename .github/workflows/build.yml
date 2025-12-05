@@ -1,165 +1,134 @@
-name: Android Build & Release
+name: Build and Release
 
 on:
-  # 1. タグをプッシュしたときにリリース作成
   push:
     tags:
-      - 'v*'  # v1.0, v1.0.1, v2.0 など
-  
-  # 2. 手動で実行するとき（UIからボタンクリック）
+      - 'v*'
   workflow_dispatch:
     inputs:
-      version_tag:
-        description: 'リリースタグ名（例: v1.0）'
+      release_tag:
+        description: 'リリースタグ'
         required: true
         default: 'v1.0'
       release_name:
-        description: 'リリース名（例: 初回リリース）'
+        description: 'リリース名'
         required: true
         default: '新規リリース'
       is_prerelease:
-        description: 'プレリリース（ベータ版）ですか？'
+        description: 'プレリリースとして公開'
         required: true
-        default: 'false'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
-
-# リリース作成に必要な権限
-permissions:
-  contents: write  # ✅ リリース作成に必須
+        type: boolean
+        default: false
 
 jobs:
-  # ビルドジョブ
   build-and-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     
     steps:
-    # ---------- ステップ1: コード取得 ----------
-    - name: 📥 コードを取得
+    - name: Checkout code
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # タグ情報も取得
-
-    # ---------- ステップ2: Javaセットアップ ----------
-    - name: ☕ Java 17をセットアップ
+        fetch-depth: 0
+    
+    - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
-
-    # ---------- ステップ3: Gradleセットアップ ----------
-    - name: 🛠️ Gradleをセットアップ
+    
+    - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
         gradle-version: 8.5
-
-    # ---------- ステップ4: ビルド前の準備 ----------
-    - name: 🔧 ビルド設定を確認
+    
+    - name: ビルド設定を確認
       run: |
         echo "=== ビルド設定を確認 ==="
         echo "ワークフロー実行イベント: ${{ github.event_name }}"
         echo "タグ名: ${{ github.ref_name }}"
-        echo "手動入力タグ: ${{ github.event.inputs.version_tag }}"
-        echo "手動入力リリース名: ${{ github.event.inputs.release_name }}"
-        echo "プレリリース: ${{ github.event.inputs.is_prerelease }}"
+        echo "手動入力タグ: ${{ inputs.release_tag }}"
+        echo "手動入力リリース名: ${{ inputs.release_name }}"
+        echo "プレリリース: ${{ inputs.is_prerelease }}"
         
-        # タグ名を決定（手動実行の場合は入力値、タグプッシュの場合はタグ名）
+        # タグ名を決定
         if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
           echo "手動実行モード"
+          RELEASE_TAG="${{ inputs.release_tag }}"
+          RELEASE_NAME="${{ inputs.release_name }}"
         else
           echo "タグプッシュモード"
+          RELEASE_TAG="${{ github.ref_name }}"
+          RELEASE_NAME="${{ github.ref_name }}"
         fi
-
-    # ---------- ステップ5: APKビルド ----------
-    - name: 🏗️ APKをビルド
+        
+        echo "最終リリースタグ: $RELEASE_TAG"
+        echo "最終リリース名: $RELEASE_NAME"
+        echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
+        echo "RELEASE_NAME=$RELEASE_NAME" >> $GITHUB_ENV
+    
+    - name: 必要なリソースを作成
+      run: |
+        echo "=== リソースファイル作成 ==="
+        
+        # strings.xmlがなければ作成
+        if [ ! -f app/src/main/res/values/strings.xml ]; then
+          mkdir -p app/src/main/res/values
+          echo '<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">IntentPad</string>
+</resources>' > app/src/main/res/values/strings.xml
+        fi
+        
+        # themes.xmlがなければ作成
+        if [ ! -f app/src/main/res/values/themes.xml ]; then
+          mkdir -p app/src/main/res/values
+          echo '<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.IntentPad" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:statusBarColor" tools:targetApi="l">?attr/colorPrimaryVariant</item>
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+</resources>' > app/src/main/res/values/themes.xml
+        fi
+    
+    - name: AndroidManifest.xmlを修正（デフォルトアイコン使用）
+      run: |
+        echo "=== AndroidManifest.xmlを修正 ==="
+        if [ -f app/src/main/AndroidManifest.xml ]; then
+          # デフォルトアイコンを使用するように置換
+          sed -i 's/android:icon="@mipmap\/ic_launcher"/android:icon="@android:drawable\/sym_def_app_icon"/g' app/src/main/AndroidManifest.xml
+          sed -i 's/android:roundIcon="@mipmap\/ic_launcher_round"/android:roundIcon="@android:drawable\/sym_def_app_icon"/g' app/src/main/AndroidManifest.xml
+          echo "AndroidManifest.xmlを修正しました"
+        else
+          echo "AndroidManifest.xmlが見つかりません"
+        fi
+    
+    - name: APKをビルド
       run: |
         echo "=== APKをビルド開始 ==="
         # クリーンしてからビルド
-        gradle clean assembleDebug
+        ./gradlew clean assembleDebug
         
         echo "=== ビルド完了 ==="
         echo "生成されたAPK:"
         find app/build/outputs/apk -name "*.apk" -type f
-
-    # ---------- ステップ6: APKの名前を変更（オプション） ----------
-    - name: 📛 APKの名前をリリース用に変更
-      run: |
-        # バージョン名を取得
-        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-          VERSION="${{ github.event.inputs.version_tag }}"
-        else
-          VERSION="${{ github.ref_name }}"
-        fi
-        
-        # デフォルトのAPKパス
-        APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
-        
-        # リネーム（例: IntentPad-v1.0.apk）
-        NEW_NAME="IntentPad-$VERSION.apk"
-        
-        if [ -f "$APK_PATH" ]; then
-          cp "$APK_PATH" "$NEW_NAME"
-          echo "✅ APKをリネーム: $NEW_NAME"
-          echo "APK_NAME=$NEW_NAME" >> $GITHUB_ENV
-        else
-          # 別の場所を探す
-          APK_FILE=$(find app/build/outputs/apk -name "*.apk" -type f | head -1)
-          if [ -n "$APK_FILE" ]; then
-            cp "$APK_FILE" "$NEW_NAME"
-            echo "✅ APKをリネーム: $NEW_NAME"
-            echo "APK_NAME=$NEW_NAME" >> $GITHUB_ENV
-          else
-            echo "❌ APKファイルが見つかりません"
-            exit 1
-          fi
-        fi
-
-    # ---------- ステップ7: GitHubリリース作成 ----------
-    - name: 🚀 GitHubリリースを作成
-      id: create_release
-      uses: softprops/action-gh-release@v1
-      with:
-        # タグ名（手動実行時は入力値、タグプッシュ時は自動）
-        tag_name: ${{ github.event.inputs.version_tag || github.ref_name }}
-        
-        # リリース名（手動実行時は入力値、タグプッシュ時はタグ名）
-        name: ${{ github.event.inputs.release_name || github.ref_name }}
-        
-        # リリース本文（自動生成）
-        generate_release_notes: true
-        
-        # プレリリースかどうか
-        prerelease: ${{ github.event.inputs.is_prerelease == 'true' || false }}
-        
-        # アップロードするファイル（リネームしたAPK）
-        files: |
-          IntentPad-*.apk
-          app/build/outputs/apk/debug/output-metadata.json
-        
-        # リリース失敗時にタグを削除しない（安全のため）
-        fail_on_unmatched_files: false
-        
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    # ---------- ステップ8: ワークフローの成果物としても保存（オプション） ----------
-    - name: 💾 ワークフロー成果物として保存
+    
+    - name: APKをアーティファクトとして保存
       uses: actions/upload-artifact@v4
       with:
-        name: Android-APK-${{ github.event.inputs.version_tag || github.ref_name }}
-        path: |
-          IntentPad-*.apk
-          app/build/outputs/apk/debug/output-metadata.json
-        retention-days: 30  # 30日間保持
-
-    # ---------- ステップ9: ビルド成功通知 ----------
-    - name: ✅ ビルド成功を通知
-      run: |
-        echo "========================================"
-        echo "🎉 ビルド＆リリースが成功しました！"
-        echo "📱 APK: IntentPad-${{ github.event.inputs.version_tag || github.ref_name }}.apk"
-        echo "🏷️  タグ: ${{ github.event.inputs.version_tag || github.ref_name }}"
-        echo "📝 リリース名: ${{ github.event.inputs.release_name || github.ref_name }}"
-        echo "========================================"
+        name: intentpad-apk
+        path: app/build/outputs/apk/**/*.apk
+        retention-days: 7
+    
+    - name: リリースを作成
+      if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ env.RELEASE_TAG }}
+        name: ${{ env.RELEASE_NAME }}
+        draft: false
+        prerelease: ${{ inputs.is_prerelease }}
+        files: app/build/outputs/apk/**/*.apk
+        generate_release_notes: true
