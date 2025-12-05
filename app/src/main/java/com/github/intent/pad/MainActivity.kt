@@ -202,7 +202,12 @@ fun MainScreen(
             )
         },
         floatingActionButton = { 
-            FloatingActionButton(onClick = { showDialog = true }) { 
+            FloatingActionButton(
+                onClick = { 
+                    showDialog = true
+                    itemToEdit = null
+                }
+            ) { 
                 Icon(Icons.Default.Add, "追加") 
             } 
         }
@@ -227,7 +232,10 @@ fun MainScreen(
                         item = item,
                         cardHeight = cardHeight,
                         onTest = { onTest(item) },
-                        onEdit = { itemToEdit = item },
+                        onEdit = { 
+                            itemToEdit = item
+                            showDialog = true
+                        },
                         onPin = { onPin(item) },
                         onDel = { onDel(item) }
                     )
@@ -235,7 +243,7 @@ fun MainScreen(
             }
         }
 
-        if (showDialog || itemToEdit != null) {
+        if (showDialog) {
             EditDialog(
                 item = itemToEdit,
                 onDismiss = {
