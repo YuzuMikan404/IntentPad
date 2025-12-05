@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-  
   workflow_dispatch:
     inputs:
       release_tag:
@@ -18,45 +17,39 @@ on:
       is_prerelease:
         description: 'プレリリースとして公開'
         required: true
-        default: false
         type: boolean
-
-env:
-  CACHE_VERSION: v1
+        default: false
 
 jobs:
   build:
     name: Build APK
     runs-on: ubuntu-24.04
-    
+    permissions:
+      contents: read
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    
-    - name: Setup JDK 17
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '17'
-    
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: '8.5'
-    
-    - name: Create missing resources
-      run: |
-        echo "Creating missing resource files..."
-        
-        # Create directories
-        mkdir -p app/src/main/res/values
-        mkdir -p app/src/main/res/xml
-        
-        # Create strings.xml if missing
-        if [ ! -f app/src/main/res/values/strings.xml ]; then
-          cat > app/src/main/res/values/strings.xml << 'EOF'
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
+
+      - name: Create missing resources
+        run: |
+          echo "Creating missing resource files..."
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/xml
+
+          if [ ! -f app/src/main/res/values/strings.xml ]; then
+            cat > app/src/main/res/values/strings.xml << 'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">IntentPad</string>
@@ -64,93 +57,75 @@ jobs:
     <string name="settings">設定</string>
 </resources>
 EOF
-          echo "Created strings.xml"
-        fi
-        
-        # Create file_paths.xml if missing
-        if [ ! -f app/src/main/res/xml/file_paths.xml ]; then
-          cat > app/src/main/res/xml/file_paths.xml << 'EOF'
+            echo "Created strings.xml"
+          fi
+
+          if [ ! -f app/src/main/res/xml/file_paths.xml ]; then
+            cat > app/src/main/res/xml/file_paths.xml << 'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="external_files" path="." />
 </paths>
 EOF
-          echo "Created file_paths.xml"
-        fi
-        
-        # Fix AndroidManifest.xml icons
-        if [ -f app/src/main/AndroidManifest.xml ]; then
-          sed -i 's|@mipmap/ic_launcher|@android:drawable/sym_def_app_icon|g' app/src/main/AndroidManifest.xml
-          sed -i 's|@mipmap/ic_launcher_round|@android:drawable/sym_def_app_icon|g' app/src/main/AndroidManifest.xml
-          echo "Fixed AndroidManifest.xml icons"
-        fi
-    
-    - name: Build Debug APK
-      run: |
-        echo "Building Debug APK..."
-        gradle clean assembleDebug --no-daemon --stacktrace
-    
-    - name: Upload APK artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: intentpad-apk
-        path: app/build/outputs/apk/debug/*.apk
-        retention-days: 7
-  
+            echo "Created file_paths.xml"
+          fi
+
+          if [ -f app/src/main/AndroidManifest.xml ]; then
+            sed -i 's|@mipmap/ic_launcher|@android:drawable/sym_def_app_icon|g' app/src/main/AndroidManifest.xml
+            sed -i 's|@mipmap/ic_launcher_round|@android:drawable/sym_def_app_icon|g' app/src/main/AndroidManifest.xml
+            echo "Fixed AndroidManifest.xml icons"
+          fi
+
+      - name: Build Debug APK
+        run: gradle clean assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: intentpad-apk
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
   release:
     name: Create Release
     needs: build
-    if: ${{ needs.build.result == 'success' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) }}
+    if: needs.build.result == 'success' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/'))
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-    
+
     steps:
-    - name: Download APK artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: intentpad-apk
-    
-    - name: Determine release parameters
-      id: release_params
-      run: |
-        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-          echo "Manual execution mode"
-          RELEASE_TAG="${{ github.event.inputs.release_tag }}"
-          RELEASE_NAME="${{ github.event.inputs.release_name }}"
-          IS_PRERELEASE="${{ github.event.inputs.is_prerelease }}"
-        else
-          echo "Tag push mode"
-          RELEASE_TAG="${GITHUB_REF#refs/tags/}"
-          RELEASE_NAME="$RELEASE_TAG"
-          IS_PRERELEASE="false"
-        fi
-        
-        echo "Using tag: $RELEASE_TAG"
-        echo "Using name: $RELEASE_NAME"
-        echo "Is prerelease: $IS_PRERELEASE"
-        
-        echo "tag_name=$RELEASE_TAG" >> $GITHUB_OUTPUT
-        echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
-        echo "prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
-    
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.release_params.outputs.tag_name }}
-        name: ${{ steps.release_params.outputs.release_name }}
-        draft: false
-        prerelease: ${{ steps.release_params.outputs.prerelease == 'true' }}
-        files: |
-          app-debug.apk
-        generate_release_notes: true
-        body: |
-          自動生成されたリリース
-          
-          - **ビルド日時**: ${{ github.event.repository.updated_at }}
-          - **コミットハッシュ**: ${{ github.sha }}
-          - **ワークフロー**: ${{ github.workflow }}
-          
-          このAPKはデバッグビルドです。
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: intentpad-apk
+
+      - name: Determine release parameters
+        id: release_params
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Manual execution mode"
+            RELEASE_TAG="${{ github.event.inputs.release_tag }}"
+            RELEASE_NAME="${{ github.event.inputs.release_name }}"
+            IS_PRERELEASE="${{ github.event.inputs.is_prerelease }}"
+          else
+            echo "Tag push mode"
+            RELEASE_TAG="${GITHUB_REF#refs/tags/}"
+            RELEASE_NAME="$RELEASE_TAG"
+            IS_PRERELEASE="false"
+          fi
+          echo "tag_name=$RELEASE_TAG" >> $GITHUB_OUTPUT
+          echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
+          echo "prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.release_params.outputs.tag_name }}
+          name: ${{ steps.release_params.outputs.release_name }}
+          draft: false
+          prerelease: ${{ steps.release_params.outputs.prerelease == 'true' }}
+          files: app-debug.apk
+          generate_release_notes: true
