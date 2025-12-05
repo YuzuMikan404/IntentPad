@@ -1,208 +1,157 @@
-name: 🚀 ビルド & リリース (Build and Release)
+name: 🚀 ビルド & リリース
 
-# 1. トリガーイベントの設定
 on:
-  # タグがプッシュされたとき（自動リリース用）
   push:
     tags:
       - 'v*'
-  # 手動実行を可能にするイベント [citation:2][citation:8]
   workflow_dispatch:
-    # 手動実行時の入力パラメータを定義
     inputs:
       release_tag:
-        description: '作成するリリースのタグ名 (例: v1.0.0)'
+        description: 'リリースタグ (例: v1.0.0)'
         required: true
         default: 'v1.0.0'
         type: string
       release_name:
-        description: 'GitHubリリースのタイトル'
+        description: 'リリース名'
         required: true
         default: '新規リリース'
         type: string
       is_prerelease:
-        description: 'プレリリース（ベータ版）として公開する'
+        description: 'プレリリース（ベータ版）として公開'
         required: true
         type: boolean
         default: false
 
-# 2. 環境変数の設定
 env:
-  # 依存関係キャッシュのキーにバージョンを追加（キャッシュ問題を回避）[citation:3]
   CACHE_VERSION: v1
 
-# 3. 実行するジョブの定義
 jobs:
-  # 最初のジョブ: APKのビルド
   build-apk:
     name: 🔨 APKをビルド
-    # GitHubが提供するUbuntu最新環境で実行
     runs-on: ubuntu-24.04
-    # このジョブで必要な権限を明示的に指定（書き込み権限など）[citation:3]
     permissions:
       contents: read
 
     steps:
-      # ステップ 3.1: リポジトリのコードをチェックアウト
       - name: 📥 コードを取得
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # すべての履歴を取得
+          fetch-depth: 0
 
-      # ステップ 3.2: JDK 17をセットアップ
-      - name: ☕ Java環境をセットアップ (JDK 17)
+      - name: ☕ Java環境をセットアップ
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # ステップ 3.3: Gradleのセットアップとキャッシュ
       - name: ⚙️ Gradleをセットアップ
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.5'
-          # 依存関係のキャッシュを有効化（ビルド時間を短縮）[citation:3]
           cache-disabled: false
 
-      # ステップ 3.4: 足りないリソースファイルを自動生成（ビルドエラー回避）
       - name: 🛠️ リソースファイルを作成/修正
         run: |
-          echo "=== 足りないリソースファイルを補完 ==="
-          
-          # 必須ディレクトリを作成
+          echo "=== リソースファイルを補完 ==="
           mkdir -p app/src/main/res/xml
           
-          # strings.xml がなければ作成
+          # strings.xml
           if [ ! -f app/src/main/res/values/strings.xml ]; then
             mkdir -p app/src/main/res/values
             cat > app/src/main/res/values/strings.xml << 'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <string name="app_name">IntentPad</string>
-          </resources>
-          EOF
-            echo "  作成: strings.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">IntentPad</string>
+</resources>
+EOF
+            echo "strings.xmlを作成"
           fi
           
-          # file_paths.xml がなければ作成 (FileProvider用)
+          # file_paths.xml
           if [ ! -f app/src/main/res/xml/file_paths.xml ]; then
             cat > app/src/main/res/xml/file_paths.xml << 'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <paths xmlns:android="http://schemas.android.com/apk/res/android">
-              <external-path name="external_files" path="." />
-          </paths>
-          EOF
-            echo "  作成: file_paths.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <external-path name="external_files" path="." />
+</paths>
+EOF
+            echo "file_paths.xmlを作成"
           fi
           
-          # AndroidManifest.xml のアイコン設定をデフォルトに強制修正
+          # AndroidManifest修正（アイコンをデフォルトに）
           if [ -f app/src/main/AndroidManifest.xml ]; then
             sed -i 's|@mipmap/ic_launcher|@android:drawable/sym_def_app_icon|g' app/src/main/AndroidManifest.xml
             sed -i 's|@mipmap/ic_launcher_round|@android:drawable/sym_def_app_icon|g' app/src/main/AndroidManifest.xml
-            echo "  修正: AndroidManifest.xml のアイコンをデフォルトに設定"
+            echo "AndroidManifest.xmlを修正（デフォルトアイコン使用）"
           fi
 
-      # ステップ 3.5: デバッグAPKをビルド
       - name: 📦 Debug APKをビルド
         run: |
-          echo "=== APKビルドを開始 ==="
-          ./gradlew clean assembleDebug --no-daemon --stacktrace
-        # タイムアウトを設定し、ハングアップを防止[citation:3]
+          echo "=== APKビルド開始 ==="
+          echo "Gradleバージョン確認:"
+          gradle --version
+          
+          echo "ビルド実行:"
+          # ここでgradleコマンドを使用（./gradlewではない）
+          gradle clean assembleDebug --no-daemon --stacktrace
         timeout-minutes: 15
 
-      # ステップ 3.6: ビルド成果物をアップロード
-      - name: 💾 APKをワークフローアーティファクトとして保存
+      - name: 💾 APKをアーティファクトとして保存
         uses: actions/upload-artifact@v4
         with:
           name: intentpad-debug-apk
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/mapping/debug/mapping.txt
+          path: app/build/outputs/apk/debug/*.apk
           retention-days: 7
 
-  # 次のジョブ: GitHubリリースの作成（ビルド成功後に実行）
   create-release:
-    name: 🏷️ GitHubリリースを作成
-    # ビルドジョブが成功した場合のみ実行[citation:1][citation:7]
+    name: 🏷️ リリースを作成
     needs: build-apk
     if: ${{ needs.build-apk.result == 'success' }}
     runs-on: ubuntu-24.04
-    # リリース作成にはコンテンツへの書き込み権限が必要[citation:3]
     permissions:
       contents: write
 
-    # ジョブの出力を定義（後続のジョブで利用可能）
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-
     steps:
-      # ステップ 4.1: 手動実行かタグプッシュかを判定し、リリース情報を決定
       - name: 🔍 リリースパラメータを決定
-        id: determine_params
+        id: params
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "🔧 手動実行モード"
-            RELEASE_TAG="${{ inputs.release_tag }}"
-            RELEASE_NAME="${{ inputs.release_name }}"
-            IS_PRERELEASE="${{ inputs.is_prerelease }}"
+            echo "手動実行モード"
+            RELEASE_TAG="${{ github.event.inputs.release_tag }}"
+            RELEASE_NAME="${{ github.event.inputs.release_name }}"
+            IS_PRERELEASE="${{ github.event.inputs.is_prerelease }}"
           else
-            echo "🏷️ タグプッシュモード"
-            RELEASE_TAG="${GITHUB_REF#refs/tags/}" # 'refs/tags/v1.0' -> 'v1.0'
+            echo "タグプッシュモード"
+            RELEASE_TAG="${GITHUB_REF#refs/tags/}"
             RELEASE_NAME="${RELEASE_TAG}"
             IS_PRERELEASE="false"
           fi
-          echo "決定したタグ: $RELEASE_TAG"
-          echo "決定した名前: $RELEASE_NAME"
+          echo "タグ: $RELEASE_TAG"
+          echo "名前: $RELEASE_NAME"
+          echo "プレリリース: $IS_PRERELEASE"
           
-          # 環境変数とジョブ出力として設定
           echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
           echo "RELEASE_NAME=$RELEASE_NAME" >> $GITHUB_ENV
           echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_ENV
-          
-          # 後のステップで使えるように出力も設定
-          echo "tag_name=$RELEASE_TAG" >> $GITHUB_OUTPUT
-          echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
 
-      # ステップ 4.2: GitHubリリースを作成
-      - name: 🚀 リリース草案を作成
-        id: create_release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          name: ${{ env.RELEASE_NAME }}
-          draft: false # 下書きではなくすぐに公開
-          prerelease: ${{ env.IS_PRERELEASE == 'true' }}
-          generate_release_notes: true
-        env:
-          # アクションにGitHubトークンを渡す
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # 最終ジョブ: リリースへのAPKアップロード（作成ジョブに依存）
-  upload-to-release:
-    name: ⬆️ APKをリリースに添付
-    needs: create-release
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-
-    steps:
-      # ステップ 5.1: 前のジョブでビルドしたAPKをダウンロード
       - name: 📥 ビルド済みAPKをダウンロード
         uses: actions/download-artifact@v4
         with:
           name: intentpad-debug-apk
 
-      # ステップ 5.2: APKファイルをGitHubリリースにアップロード
-      - name: 📤 リリースにAPKを添付
+      - name: 🚀 GitHubリリースを作成
         uses: softprops/action-gh-release@v1
         with:
-          # 直前の`create-release`ジョブの出力からアップロードURLを取得[citation:7]
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_NAME }}
+          draft: false
+          prerelease: ${{ env.IS_PRERELEASE == 'true' }}
           files: |
             app-debug.apk
+          generate_release_notes: true
           body: |
-            このリリースはワークフローによって自動生成されました。
-            - **ビルド日時:** ${{ github.event.repository.updated_at }}
-            - **コミット:** ${{ github.sha }}
+            自動生成リリース
+            - ビルド日時: ${{ github.event.repository.updated_at }}
+            - コミット: ${{ github.sha }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
