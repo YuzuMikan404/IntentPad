@@ -1,138 +1,289 @@
-name: Build and Release
+name: LIMEs-Neo Daily Build
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: 'リリースタグ'
-        required: true
-        default: 'v1.0'
-      release_name:
-        description: 'リリース名'
-        required: true
-        default: '新規リリース'
-      is_prerelease:
-        description: 'プレリリースとして公開'
-        required: true
+      force_rebuild:
+        description: '既存のビルドを上書きして強制再ビルド'
+        required: false
+        default: true
         type: boolean
-        default: false
+      build_type:
+        description: 'ビルドタイプ'
+        required: false
+        default: 'release'
+        type: string
+        options:
+          - release
+          - debug
+          - both
+  schedule:
+    - cron: '0 0 * * *'
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
+      - 'docs/**'
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  packages: read
+
+env:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+  ANDROID_HOME: /usr/local/lib/android/sdk
 
 jobs:
-  build:
-    name: Build APK
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
+  check-and-build:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_REPO: areteruhiro/PrtivateLIMEs
+      MY_PAT: ${{ secrets.PAT }}
+      # モジュール自体の新しいパッケージ名
+      NEW_PKG: "io.github.fork.lime"
+      APP_NAME: "LIMEs-Neo"
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Debug Workflow Dispatch Inputs
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "GitHub Event Name: ${{ github.event_name }}"
+          echo "Force Rebuild Input: ${{ github.event.inputs.force_rebuild }}"
+          echo "Build Type Input: ${{ github.event.inputs.build_type }}"
 
-    - name: Setup JDK 17
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '17'
+      - name: Checkout Local Repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }}
+          fetch-depth: 0
+          ref: ${{ github.ref }}
 
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: '8.5'
+      - name: Determine Trigger Type
+        id: trigger
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "TRIGGER_TYPE=manual" >> $GITHUB_ENV
+            echo "BUILD_NEEDED=true" >> $GITHUB_ENV
+            FORCE_REBUILD="${{ github.event.inputs.force_rebuild }}"
+            if [[ -z "$FORCE_REBUILD" || "$FORCE_REBUILD" == "true" ]]; then
+              echo "FORCE_REBUILD=true" >> $GITHUB_ENV
+            else
+              echo "FORCE_REBUILD=false" >> $GITHUB_ENV
+            fi
+            BUILD_TYPE="${{ github.event.inputs.build_type }}"
+            if [[ -z "$BUILD_TYPE" ]]; then BUILD_TYPE="release"; fi
+            echo "BUILD_TYPE=$BUILD_TYPE" >> $GITHUB_ENV
+          elif [[ "${{ github.event_name }}" == "schedule" ]]; then
+            echo "TRIGGER_TYPE=scheduled" >> $GITHUB_ENV
+            echo "FORCE_REBUILD=false" >> $GITHUB_ENV
+            echo "BUILD_TYPE=release" >> $GITHUB_ENV
+          else
+            echo "TRIGGER_TYPE=other" >> $GITHUB_ENV
+            echo "FORCE_REBUILD=false" >> $GITHUB_ENV
+            echo "BUILD_TYPE=release" >> $GITHUB_ENV
+            echo "BUILD_NEEDED=true" >> $GITHUB_ENV
+          fi
 
-    - name: Create missing resources
-      run: |
-        echo "Creating missing resource files..."
-        mkdir -p app/src/main/res/values
-        mkdir -p app/src/main/res/xml
-        
-        if [ ! -f app/src/main/res/values/strings.xml ]; then
-          cat > app/src/main/res/values/strings.xml << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <resources>
-            <string name="app_name">IntentPad</string>
-            <string name="share_history">共有履歴</string>
-            <string name="settings">設定</string>
-        </resources>
-        EOF
-          echo "Created strings.xml"
-        fi
-        
-        if [ ! -f app/src/main/res/xml/file_paths.xml ]; then
-          cat > app/src/main/res/xml/file_paths.xml << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <paths xmlns:android="http://schemas.android.com/apk/res/android">
-            <external-path name="external_files" path="." />
-        </paths>
-        EOF
-          echo "Created file_paths.xml"
-        fi
-        
-        if [ -f app/src/main/AndroidManifest.xml ]; then
-          sed -i 's|@mipmap/ic_launcher|@android:drawable/sym_def_app_icon|g' app/src/main/AndroidManifest.xml
-          sed -i 's|@mipmap/ic_launcher_round|@android:drawable/sym_def_app_icon|g' app/src/main/AndroidManifest.xml
-          echo "Fixed AndroidManifest.xml icons"
-        fi
-        
-        # 追加: themes.xml に tools 名前空間が不足しているエラーを修正
-        if [ -f app/src/main/res/values/themes.xml ]; then
-          sed -i 's|<resources|<resources xmlns:tools="http://schemas.android.com/tools" |g' app/src/main/res/values/themes.xml
-          echo "Fixed themes.xml: Added xmlns:tools"
-        fi
+      - name: Check for Scheduled Build
+        if: env.TRIGGER_TYPE == 'scheduled'
+        run: |
+          AUTH_URL="https://x-access-token:${MY_PAT}@github.com/${SOURCE_REPO}.git"
+          UPSTREAM_SHA=$(git ls-remote "$AUTH_URL" HEAD | awk '{print $1}')
+          SHORT_SHA=${UPSTREAM_SHA:0:7}
+          BASE_TAG="build-$SHORT_SHA"
+          if git ls-remote --tags origin "refs/tags/$BASE_TAG" >/dev/null 2>&1; then
+            echo "BUILD_NEEDED=false" >> $GITHUB_ENV
+          else
+            echo "BUILD_NEEDED=true" >> $GITHUB_ENV
+            echo "UPSTREAM_SHA=$UPSTREAM_SHA" >> $GITHUB_ENV
+            echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
+            echo "TARGET_TAG=$BASE_TAG" >> $GITHUB_ENV
+          fi
 
-    - name: Build Debug APK
-      run: gradle clean assembleDebug --no-daemon --stacktrace
+      - name: Setup Manual Build
+        if: env.TRIGGER_TYPE == 'manual' && env.BUILD_NEEDED == 'true'
+        run: |
+          AUTH_URL="https://x-access-token:${MY_PAT}@github.com/${SOURCE_REPO}.git"
+          UPSTREAM_SHA=$(git ls-remote "$AUTH_URL" HEAD | awk '{print $1}')
+          SHORT_SHA=${UPSTREAM_SHA:0:7}
+          BASE_TAG="build-$SHORT_SHA"
+          echo "UPSTREAM_SHA=$UPSTREAM_SHA" >> $GITHUB_ENV
+          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
+          if [[ "$FORCE_REBUILD" == "true" ]]; then
+            echo "TARGET_TAG=$BASE_TAG" >> $GITHUB_ENV
+          else
+            TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+            echo "TARGET_TAG=${BASE_TAG}-manual-${TIMESTAMP}" >> $GITHUB_ENV
+          fi
 
-    - name: Upload APK artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: intentpad-apk
-        path: app/build/outputs/apk/debug/*.apk
-        retention-days: 7
+      - name: Setup Other Trigger Build
+        if: env.TRIGGER_TYPE == 'other' && env.BUILD_NEEDED == 'true'
+        run: |
+          CURRENT_SHA="${{ github.sha }}"
+          SHORT_SHA=${CURRENT_SHA:0:7}
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          echo "UPSTREAM_SHA=$CURRENT_SHA" >> $GITHUB_ENV
+          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
+          echo "TARGET_TAG=build-$SHORT_SHA-$TIMESTAMP" >> $GITHUB_ENV
 
-  release:
-    name: Create Release
-    needs: build
-    if: needs.build.result == 'success' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/'))
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
+      - name: Skip Build if Not Needed
+        if: env.BUILD_NEEDED != 'true'
+        run: exit 0
 
-    steps:
-    - name: Download APK artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: intentpad-apk
-        path: .
+      - name: Get Build Datetime
+        if: env.BUILD_NEEDED == 'true'
+        run: |
+          echo "BUILD_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+          echo "BUILD_TIME=$(date +'%H:%M:%S')" >> $GITHUB_ENV
 
-    - name: Determine release parameters
-      id: release_params
-      run: |
-        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-          echo "Manual execution mode"
-          RELEASE_TAG="${{ github.event.inputs.release_tag }}"
-          RELEASE_NAME="${{ github.event.inputs.release_name }}"
-          IS_PRERELEASE="${{ github.event.inputs.is_prerelease }}"
-        else
-          echo "Tag push mode"
-          RELEASE_TAG="${GITHUB_REF#refs/tags/}"
-          RELEASE_NAME="$RELEASE_TAG"
-          IS_PRERELEASE="false"
-        fi
-        echo "tag_name=$RELEASE_TAG" >> $GITHUB_OUTPUT
-        echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
-        echo "prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+      - name: Fetch Source Code
+        if: env.BUILD_NEEDED == 'true'
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git remote add upstream "https://x-access-token:${MY_PAT}@github.com/${SOURCE_REPO}.git" || true
+          git fetch upstream
+          git checkout $UPSTREAM_SHA
 
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.release_params.outputs.tag_name }}
-        name: ${{ steps.release_params.outputs.release_name }}
-        draft: false
-        prerelease: ${{ steps.release_params.outputs.prerelease == 'true' }}
-        files: ./*.apk
-        generate_release_notes: true
+      - name: Setup Java
+        if: env.BUILD_NEEDED == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        if: env.BUILD_NEEDED == 'true'
+        uses: android-actions/setup-android@v3
+
+      # === 修正箇所: LSPatch認識率向上のための設定 ===
+      - name: Configure Scope & Package Names
+        if: env.BUILD_NEEDED == 'true'
+        run: |
+          echo "=== モジュール設定の適用 ==="
+          
+          OLD_PKG="io.github.hiro.lime"
+          NEW_PKG="io.github.fork.lime"
+          
+          # 1. モジュール自体のパッケージ名を変更 (競合回避)
+          echo "モジュールID置換: $OLD_PKG -> $NEW_PKG"
+          find . -type f \( -name "*.xml" -o -name "*.java" -o -name "*.kt" -o -name "*.gradle" \) \
+            ! -path "*/build/*" ! -path "*/.git/*" \
+            -exec sed -i "s|$OLD_PKG|$NEW_PKG|g" {} +
+
+          # 2. Scope定義を「配列リソース」に変更して、オリジナルとClone両方を対象にする
+          echo "LSPatch用Scope定義の強化 (Clone対応)"
+          
+          # 既存の xposedscope メタデータを書き換え (value="..." -> resource="@array/...")
+          # ※ここでは単純な文字列置換ではなく、Scope設定行を狙って置換します
+          find . -name "AndroidManifest.xml" ! -path "*/build/*" \
+            -exec sed -i 's|android:name="xposedscope"[[:space:]]*android:value="[^"]*"|android:name="xposedscope" android:resource="@array/xposed_scope"|g' {} +
+
+          # 新しい配列リソースファイルを作成
+          # これにより、LSPatch Managerは公式LINEでもCloneでも認識するようになります
+          mkdir -p app/src/main/res/values
+          cat <<EOF > app/src/main/res/values/scope_list.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string-array name="xposedscope">
+                  <item>jp.naver.line.android</item>
+                  <item>jp.naver.line.android.clone</item>
+              </string-array>
+          </resources>
+          EOF
+          echo "✅ scope_list.xml を作成しました"
+
+          # 3. フック判定ロジックの緩和
+          #    クラス名やImport文は壊さずに、パッケージ名チェックだけを緩めます
+          echo "フック判定ロジックの調整"
+          
+          # '== "jp.naver.line.android"' -> '.startsWith("jp.naver.line.android")'
+          find . -type f \( -name "*.kt" -o -name "*.java" \) ! -path "*/build/*" \
+            -exec sed -i 's|== "jp.naver.line.android"|.startsWith("jp.naver.line.android")|g' {} +
+            
+          # '!= "jp.naver.line.android"' -> '!...startsWith(...)'
+          find . -type f \( -name "*.kt" -o -name "*.java" \) ! -path "*/build/*" \
+            -exec sed -i 's|!= "jp.naver.line.android"|!it.packageName.startsWith("jp.naver.line.android")|g' {} +
+
+          # 変数比較用 (equals -> startsWith)
+          find . -type f \( -name "*.kt" -o -name "*.java" \) ! -path "*/build/*" \
+            -exec sed -i 's|equals("jp.naver.line.android")|startsWith("jp.naver.line.android")|g' {} +
+
+          echo "✅ 設定完了"
+
+      - name: Unify Application Name
+        if: env.BUILD_NEEDED == 'true'
+        run: |
+          find . -name "AndroidManifest.xml" -type f ! -path "*/build/*" ! -path "*/.git/*" 2>/dev/null | \
+            while read file; do
+              sed -i 's|android:label="[^"]*"|android:label="LIMEs-Neo"|g' "$file"
+            done
+          find . -name "strings.xml" -type f ! -path "*/build/*" ! -path "*/.git/*" 2>/dev/null | \
+            while read file; do
+              sed -i 's|<string name="app_name">[^<]*</string>|<string name="app_name">LIMEs-Neo</string>|g' "$file"
+            done
+
+      - name: Set Gradle Permissions
+        if: env.BUILD_NEEDED == 'true'
+        run: |
+          if [[ -f "gradlew" ]]; then chmod +x gradlew; fi
+
+      - name: Build APK
+        if: env.BUILD_NEEDED == 'true'
+        run: |
+          echo "=== APKビルド実行 ==="
+          BUILD_COMMANDS=()
+          if [[ "$BUILD_TYPE" == "release" || "$BUILD_TYPE" == "both" ]]; then
+            BUILD_COMMANDS+=("assembleRelease")
+          fi
+          if [[ "$BUILD_TYPE" == "debug" || "$BUILD_TYPE" == "both" ]]; then
+            BUILD_COMMANDS+=("assembleDebug")
+          fi
+          
+          ./gradlew clean 2>&1 | tail -20 || true
+          
+          for cmd in "${BUILD_COMMANDS[@]}"; do
+            echo "実行中: ./gradlew $cmd"
+            if ./gradlew $cmd --stacktrace --no-daemon 2>&1; then
+              echo "✅ $cmd 成功"
+              echo "BUILD_RESULT=${cmd#assemble}" >> $GITHUB_ENV
+            else
+              echo "❌ $cmd 失敗"
+              exit 1
+            fi
+          done
+
+      - name: Create GitHub Release
+        if: env.BUILD_NEEDED == 'true' && success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TARGET_TAG }}
+          name: LIMEs-Neo ${{ env.SHORT_SHA }} (${{ env.BUILD_DATE }})
+          body: |
+            # 🚀 LIMEs-Neo ビルド
+            
+            - **ソース**: ${{ env.SHORT_SHA }}
+            - **LSPatchスコープ**: 公式(`jp.naver.line.android`) / Clone(`...clone`) 両対応
+            
+            ※ LSPatch Managerで Cloneアプリも正しく認識されるようにスコープ設定を強化しました。
+          draft: false
+          prerelease: false
+          overwrite: ${{ env.FORCE_REBUILD == 'true' && true || false }}
+          files: |
+            **/build/outputs/apk/**/*.apk
+            *.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Build Completion Notification
+        if: always()
+        run: |
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "✅ ビルド成功！"
+            echo "ターゲット: jp.naver.line.android & .clone (Dual Scope)"
+          else
+            echo "❌ ビルド失敗"
+          fi
