@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">IntentPad</string>
+    <string name="share_history">共有履歴</string>
+    <string name="settings">設定</string>
+    <string name="no_items">アイテムがありません</string>
+    <string name="copy">コピー</string>
+    <string name="delete">削除</string>
+    <string name="share">共有</string>
+</resources>
