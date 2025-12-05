@@ -1,157 +1,156 @@
-name: 🚀 ビルド & リリース
+name: Build and Release
 
 on:
   push:
     tags:
       - 'v*'
+  
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'リリースタグ (例: v1.0.0)'
+        description: 'リリースタグ'
         required: true
-        default: 'v1.0.0'
-        type: string
+        default: 'v1.0'
       release_name:
         description: 'リリース名'
         required: true
         default: '新規リリース'
-        type: string
       is_prerelease:
-        description: 'プレリリース（ベータ版）として公開'
+        description: 'プレリリースとして公開'
         required: true
-        type: boolean
         default: false
+        type: boolean
 
 env:
   CACHE_VERSION: v1
 
 jobs:
-  build-apk:
-    name: 🔨 APKをビルド
+  build:
+    name: Build APK
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-
+    
     steps:
-      - name: 📥 コードを取得
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: ☕ Java環境をセットアップ
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: ⚙️ Gradleをセットアップ
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.5'
-          cache-disabled: false
-
-      - name: 🛠️ リソースファイルを作成/修正
-        run: |
-          echo "=== リソースファイルを補完 ==="
-          mkdir -p app/src/main/res/xml
-          
-          # strings.xml
-          if [ ! -f app/src/main/res/values/strings.xml ]; then
-            mkdir -p app/src/main/res/values
-            cat > app/src/main/res/values/strings.xml << 'EOF'
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+    
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: '8.5'
+    
+    - name: Create missing resources
+      run: |
+        echo "Creating missing resource files..."
+        
+        # Create directories
+        mkdir -p app/src/main/res/values
+        mkdir -p app/src/main/res/xml
+        
+        # Create strings.xml if missing
+        if [ ! -f app/src/main/res/values/strings.xml ]; then
+          cat > app/src/main/res/values/strings.xml << 'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">IntentPad</string>
+    <string name="share_history">共有履歴</string>
+    <string name="settings">設定</string>
 </resources>
 EOF
-            echo "strings.xmlを作成"
-          fi
-          
-          # file_paths.xml
-          if [ ! -f app/src/main/res/xml/file_paths.xml ]; then
-            cat > app/src/main/res/xml/file_paths.xml << 'EOF'
+          echo "Created strings.xml"
+        fi
+        
+        # Create file_paths.xml if missing
+        if [ ! -f app/src/main/res/xml/file_paths.xml ]; then
+          cat > app/src/main/res/xml/file_paths.xml << 'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="external_files" path="." />
 </paths>
 EOF
-            echo "file_paths.xmlを作成"
-          fi
-          
-          # AndroidManifest修正（アイコンをデフォルトに）
-          if [ -f app/src/main/AndroidManifest.xml ]; then
-            sed -i 's|@mipmap/ic_launcher|@android:drawable/sym_def_app_icon|g' app/src/main/AndroidManifest.xml
-            sed -i 's|@mipmap/ic_launcher_round|@android:drawable/sym_def_app_icon|g' app/src/main/AndroidManifest.xml
-            echo "AndroidManifest.xmlを修正（デフォルトアイコン使用）"
-          fi
-
-      - name: 📦 Debug APKをビルド
-        run: |
-          echo "=== APKビルド開始 ==="
-          echo "Gradleバージョン確認:"
-          gradle --version
-          
-          echo "ビルド実行:"
-          # ここでgradleコマンドを使用（./gradlewではない）
-          gradle clean assembleDebug --no-daemon --stacktrace
-        timeout-minutes: 15
-
-      - name: 💾 APKをアーティファクトとして保存
-        uses: actions/upload-artifact@v4
-        with:
-          name: intentpad-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          retention-days: 7
-
-  create-release:
-    name: 🏷️ リリースを作成
-    needs: build-apk
-    if: ${{ needs.build-apk.result == 'success' }}
+          echo "Created file_paths.xml"
+        fi
+        
+        # Fix AndroidManifest.xml icons
+        if [ -f app/src/main/AndroidManifest.xml ]; then
+          sed -i 's|@mipmap/ic_launcher|@android:drawable/sym_def_app_icon|g' app/src/main/AndroidManifest.xml
+          sed -i 's|@mipmap/ic_launcher_round|@android:drawable/sym_def_app_icon|g' app/src/main/AndroidManifest.xml
+          echo "Fixed AndroidManifest.xml icons"
+        fi
+    
+    - name: Build Debug APK
+      run: |
+        echo "Building Debug APK..."
+        gradle clean assembleDebug --no-daemon --stacktrace
+    
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: intentpad-apk
+        path: app/build/outputs/apk/debug/*.apk
+        retention-days: 7
+  
+  release:
+    name: Create Release
+    needs: build
+    if: ${{ needs.build.result == 'success' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-
+    
     steps:
-      - name: 🔍 リリースパラメータを決定
-        id: params
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "手動実行モード"
-            RELEASE_TAG="${{ github.event.inputs.release_tag }}"
-            RELEASE_NAME="${{ github.event.inputs.release_name }}"
-            IS_PRERELEASE="${{ github.event.inputs.is_prerelease }}"
-          else
-            echo "タグプッシュモード"
-            RELEASE_TAG="${GITHUB_REF#refs/tags/}"
-            RELEASE_NAME="${RELEASE_TAG}"
-            IS_PRERELEASE="false"
-          fi
-          echo "タグ: $RELEASE_TAG"
-          echo "名前: $RELEASE_NAME"
-          echo "プレリリース: $IS_PRERELEASE"
+    - name: Download APK artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: intentpad-apk
+    
+    - name: Determine release parameters
+      id: release_params
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "Manual execution mode"
+          RELEASE_TAG="${{ github.event.inputs.release_tag }}"
+          RELEASE_NAME="${{ github.event.inputs.release_name }}"
+          IS_PRERELEASE="${{ github.event.inputs.is_prerelease }}"
+        else
+          echo "Tag push mode"
+          RELEASE_TAG="${GITHUB_REF#refs/tags/}"
+          RELEASE_NAME="$RELEASE_TAG"
+          IS_PRERELEASE="false"
+        fi
+        
+        echo "Using tag: $RELEASE_TAG"
+        echo "Using name: $RELEASE_NAME"
+        echo "Is prerelease: $IS_PRERELEASE"
+        
+        echo "tag_name=$RELEASE_TAG" >> $GITHUB_OUTPUT
+        echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
+        echo "prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+    
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.release_params.outputs.tag_name }}
+        name: ${{ steps.release_params.outputs.release_name }}
+        draft: false
+        prerelease: ${{ steps.release_params.outputs.prerelease == 'true' }}
+        files: |
+          app-debug.apk
+        generate_release_notes: true
+        body: |
+          自動生成されたリリース
           
-          echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
-          echo "RELEASE_NAME=$RELEASE_NAME" >> $GITHUB_ENV
-          echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_ENV
-
-      - name: 📥 ビルド済みAPKをダウンロード
-        uses: actions/download-artifact@v4
-        with:
-          name: intentpad-debug-apk
-
-      - name: 🚀 GitHubリリースを作成
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          name: ${{ env.RELEASE_NAME }}
-          draft: false
-          prerelease: ${{ env.IS_PRERELEASE == 'true' }}
-          files: |
-            app-debug.apk
-          generate_release_notes: true
-          body: |
-            自動生成リリース
-            - ビルド日時: ${{ github.event.repository.updated_at }}
-            - コミット: ${{ github.sha }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          - **ビルド日時**: ${{ github.event.repository.updated_at }}
+          - **コミットハッシュ**: ${{ github.sha }}
+          - **ワークフロー**: ${{ github.workflow }}
+          
+          このAPKはデバッグビルドです。
