@@ -78,6 +78,14 @@ jobs:
             sed -i 's|@mipmap/ic_launcher_round|@android:drawable/sym_def_app_icon|g' app/src/main/AndroidManifest.xml
             echo "Fixed AndroidManifest.xml icons"
           fi
+
+
+          # 追加: themes.xml に tools 名前空間が不足しているエラーを修正
+
+          if [ -f app/src/main/res/values/themes.xml ]; then
+            sed -i 's|<resources|<resources xmlns:tools="http://schemas.android.com/tools" |g' app/src/main/res/values/themes.xml
+            echo "Fixed themes.xml: Added xmlns:tools"
+          fi
       - name: Build Debug APK
         run: gradle clean assembleDebug --no-daemon --stacktrace
       - name: Upload APK artifact
